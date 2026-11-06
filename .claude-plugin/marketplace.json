@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "scalp-trading-crypto-jeto1337",
+  "description": "Crypto scalping skills by Jeto (@codegeas1337)",
+  "owner": {
+    "name": "Jeto (@codegeas1337)"
+  },
+  "plugins": [
+    {
+      "name": "scalp-trading-crypto-jeto1337",
+      "description": "Practise crypto scalping on 1-minute candles: news and blockchain checks, breakout timing, tight and time stops, fee-aware sizing, a 1-minute time machine and paper trading.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/spikeich/scalp-trading-crypto-jeto1337"
+    }
+  ]
+}

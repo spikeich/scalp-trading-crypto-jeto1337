@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+trader/
+research/*_1m.json
+research/grid*.json
