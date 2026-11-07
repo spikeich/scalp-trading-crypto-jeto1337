@@ -1075,14 +1075,15 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
-        session = a.session
+        session, window = a.session, a.window_utc
         if not session and not a.symbol and os.path.exists(a.plan):
             try:
                 with open(a.plan, encoding="utf-8") as fh:
-                    session = (json.load(fh) or {}).get("session")
+                    raw = json.load(fh) or {}
+                session, window = raw.get("session"), window or raw.get("window_utc")
             except (OSError, ValueError):
                 session = None
-        set_session(session if session in SESSIONS or session == "utc" else "wallstreet", a.window_utc)
+        set_session(session if session in SESSIONS or session == "utc" else "wallstreet", window)
         return {"run": cmd_run, "chart": cmd_chart}[a.cmd](a)
     except TMError as e:
         print("timemachine.py: %s" % e, file=sys.stderr)

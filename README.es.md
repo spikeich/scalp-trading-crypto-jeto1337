@@ -132,7 +132,11 @@ python3 bt.py --no-fees
 | `europa` | 08:00 Londres | 08:00 | 05:00 | las 2 primeras horas |
 | `wallstreet` | 09:30 Nueva York | 14:30 | 11:30 | las 2 primeras horas |
 
-Cada día se calcula con sus propios horarios de verano.
+Cada día se calcula con sus propios horarios de verano. La cripto opera todo
+el tiempo, así que también hay una sesión libre para practicar a cualquier hora:
+`--session utc --open HH:MM` (entrada, salida, escáner; la máquina del tiempo la
+lee del plan). Lejos de las aperturas BTC se mueve menos (el fin de semana, unas
+3 veces menos), y en nuestras pruebas ningún horario ganó después de comisiones.
 
 ## Tests
 

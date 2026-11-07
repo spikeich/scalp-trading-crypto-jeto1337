@@ -144,10 +144,20 @@ def main(argv=None):
             "margen %.2f a %gx, riesgo %.2f USD" % ("LARGO" if plan["side"] == "buy" else "CORTO", plan["symbol"],
                                                     plan["entry"], plan["stop"], plan["target"], plan["flat_by"],
                                                     sz["qty"], sz["notional"], sz["margin"], a.lev, sz["risk_usd"]))
-        seen = signal
+        seen, errors = signal, 0
         while st["state"] in ("WAIT", "OPEN"):
             now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-            for c in candles(plan["symbol"], a.offline):
+            try:
+                rows = candles(plan["symbol"], a.offline)
+                errors = 0
+            except PaperError as e:
+                errors += 1
+                if a.offline or errors >= 6:
+                    raise
+                say("(Yahoo no respondió, reintento en %d s: %s)" % (a.poll, e))
+                time.sleep(a.poll)
+                continue
+            for c in rows:
                 if c[0] < seen or c[0] + dt.timedelta(minutes=1) > (now if not a.offline else dt.datetime.max):
                     continue
                 seen = c[0] + dt.timedelta(minutes=1)

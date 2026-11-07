@@ -130,7 +130,11 @@ python3 bt.py --no-fees
 | `europa` | 08:00 London | 08:00 | the first 2 hours |
 | `wallstreet` | 09:30 New York | 14:30 | the first 2 hours |
 
-Each day is worked out with its own daylight saving offsets.
+Each day is worked out with its own daylight saving offsets. Crypto trades
+around the clock, so there is also a free session for practising at any hour:
+`--session utc --open HH:MM` (entry, exit, scanner; the time machine reads it
+from the plan). Away from the opens BTC moves less (about a third on weekends),
+and in our tests no hour of the day made money after fees.
 
 ## Tests
 

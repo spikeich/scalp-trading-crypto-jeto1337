@@ -4,6 +4,7 @@
     python3 tests/run_all.py                 # one pass, results in a temporary folder
     python3 tests/run_all.py --twice         # two passes; the offline cases must print the same twice
     python3 tests/run_all.py --only scalp-entry,social --out /tmp/t
+    python3 tests/run_all.py --twice --offline-only   # skip the cases that need live prices
 
 Each case: (name, args, expected exit codes, offline?, text that must appear).
 Offline cases read the saved candles in tests/data (or pin the clock with --now),
@@ -70,6 +71,9 @@ CASES = [
     ("scalp-entry bad minutes", [EN, "check", "BTC", "--or-minutes", "0"], [1], True, "between 1 and 60"),
     ("scalp-entry level needs side", [EN, "check", "BTC", "--setup", "level", "--level", "1"], [1], True,
      "--side long"),
+    ("scalp-entry utc session", [EN, "check", "BTC", "--session", "utc", "--open", "01:00", "--offline", BTC2D,
+                                 "--now", "2026-11-06 03:00"], [0, 1], True, "sesión utc (abre 01:00 UTC)"),
+    ("scalp-entry utc needs open", [EN, "check", "BTC", "--session", "utc"], [1], True, "needs --open"),
     ("scalp-entry live", [EN, "check", "BTC"], [0, 1], False, "sesión wallstreet"),
 
     # ---- scalp-exit (reads the entry.json written above)
@@ -80,6 +84,12 @@ CASES = [
     ("scalp-exit stop too tight", [EX, "plan", "--stop", "pct:0.1"], [1], True, "under 0.15"),
     ("scalp-exit liquidation", [EX, "plan", "--stop", "pct:1", "--lev", "100"], [1], True,
      "comes before the stop"),
+    ("scalp-exit utc plan", [EX, "plan", "--symbol", "BTC", "--side", "sell", "--entry", "75000", "--entry-time",
+                             "02:10", "--date", "2026-11-06", "--session", "utc", "--open", "02:00", "--write",
+                             "trader/plan_utc.json"], [0], True, "sesión utc"),
+    ("scalp-exit utc needs open", [EX, "plan", "--symbol", "BTC", "--side", "sell", "--entry", "75000",
+                                   "--entry-time", "02:10", "--date", "2026-11-06", "--session", "utc"], [1], True,
+     "needs its start"),
     ("scalp-exit far plan", [EX, "plan", "--symbol", "BTC", "--side", "buy", "--entry", "74000", "--entry-time",
                              "14:42", "--date", "2026-11-06", "--write", "trader/plan_far.json"], [0], True,
      "entrada  74000"),
@@ -101,6 +111,8 @@ CASES = [
                                           "--stop", "75593", "--target", "76163", "--entry-time", "18:00",
                                           "--offline", BTC28, "--now", "2026-11-06 19:00"], [1], True,
      "inside the session window"),
+    ("scalp-timemachine utc plan", [TM, "run", "--plan", "trader/plan_utc.json", "--offline", BTC28, "--now",
+                                    "2026-11-06 16:40"], [0, 1], True, "02:10 UTC to 02:30 UTC"),
     ("scalp-timemachine live", [TM, "run"] + BTC_LONG[:-4], [0, 1], False, ""),
 
     # ---- scalp-risk (plan.json from exit; fresh journal per pass)
@@ -323,7 +335,7 @@ def norm(text):
     return re.sub(r'"created_at": "[^"]*"', '"created_at": X', text)
 
 
-def one_pass(out, only):
+def one_pass(out, only, offline_only=False):
     if os.path.exists(out):
         shutil.rmtree(out)
     work = os.path.join(out, "work")
@@ -332,6 +344,8 @@ def one_pass(out, only):
     results = []
     for name, args, ok_codes, det, must in CASES:
         if only and not any(name.startswith(p) for p in only):
+            continue
+        if offline_only and not det:
             continue
         t0 = time.time()
         p = subprocess.run([sys.executable, "-I"] + args, cwd=work, capture_output=True, text=True, timeout=900)
@@ -364,14 +378,15 @@ def main():
     ap.add_argument("--out", help="folder for the results (default: a temporary one)")
     ap.add_argument("--only", help="comma list of case-name prefixes, e.g. scalp-entry,social")
     ap.add_argument("--twice", action="store_true", help="run two passes and compare the offline cases")
+    ap.add_argument("--offline-only", action="store_true", help="skip the cases that read live prices")
     a = ap.parse_args()
     out = a.out or tempfile.mkdtemp(prefix="scalp-tests-")
     only = [x.strip() for x in a.only.split(",")] if a.only else None
-    first = one_pass(os.path.join(out, "pass1"), only)
+    first = one_pass(os.path.join(out, "pass1"), only, a.offline_only)
     ok = all(r["ok"] for r in first)
     if a.twice:
         print("\n--- segunda pasada ---")
-        second = one_pass(os.path.join(out, "pass2"), only)
+        second = one_pass(os.path.join(out, "pass2"), only, a.offline_only)
         ok = ok and all(r["ok"] for r in second)
         diffs = [x["name"] for x, y in zip(first, second) if x["det"] and x["out"] != y["out"]]
         print("Casos sin red que dieron distinto entre pasadas: %s" % (", ".join(diffs) or "ninguno"))

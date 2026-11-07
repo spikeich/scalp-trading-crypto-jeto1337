@@ -68,7 +68,7 @@ SKIP = {
     "wsteth", "cbbtc", "bsc-usd", "usdf", "usdg", "gho", "frax", "lusd", "u", "wbt",
     "weeth", "reth", "jitosol", "msol", "bnsol", "bfusd", "syrupusdc",
 }
-SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30), "europa": ("london", 8 * 60)}
+SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30), "europa": ("london", 8 * 60), "utc": ("utc", None)}
 LABEL = {
     "breakout_20d": ("largo", "cierre por encima de los 20 anteriores"),
     "breakdown_20d": ("corto", "cierre por debajo de los 20 anteriores"),
@@ -405,7 +405,12 @@ def orb_scan(bars, day, open_min, cutoff_min, n_range, confirm=2):
 def cmd_orb(a):
     now = parse_now(a.now)
     day = now.date()
-    open_min = open_utc(a.session, day)
+    if a.session == "utc":
+        if not a.open:
+            raise ScanError("--session utc needs --open HH:MM (UTC)")
+        open_min = parse_hhmm(a.open)
+    else:
+        open_min = open_utc(a.session, day)
     cutoff = parse_hhmm(a.at) if a.at else now.hour * 60 + now.minute
     n = a.or_minutes
     if not 1 <= n <= 60:
@@ -500,6 +505,7 @@ def main(argv=None):
     p.add_argument("--session", default="wallstreet", choices=sorted(SESSIONS))
     p.add_argument("--or-minutes", type=int, default=5)
     p.add_argument("--confirm", type=int, default=2, help="1-minute closes in a row outside the range")
+    p.add_argument("--open", help="with --session utc: the session's start, HH:MM UTC")
     p.add_argument("--at", help="cut the clock at this UTC time, e.g. 14:50")
     p.add_argument("--min-beyond", type=float, default=0.05, help="%% past the range below which a break is weak")
     p.add_argument("--write", nargs="?", const="trader/orb.json")

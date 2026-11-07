@@ -21,6 +21,8 @@ Setups:
 Sessions (each day's own daylight-time offsets, printed in UTC):
   wallstreet   opens 09:30 New York (14:30 UTC in northern winter)
   europa       opens 08:00 London   (08:00 UTC in winter)
+  utc          a free session: --open HH:MM (UTC) is its start, for practising at any
+               hour. Away from the opens crypto moves less: on weekends about a third.
 
 Scalping only makes sense while volume is high: entries stop --expire-hours (2)
 after the open. A trigger's time is the CLOSE time of its candle (the 14:36
@@ -52,7 +54,8 @@ BACKOFF = 10.0
 GRACE = 3         # seconds after a candle closes before watch asks for it
 SETTLE = 30       # seconds a closed candle may wait for Yahoo to post it
 BAR = 60
-SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30), "europa": ("london", 8 * 60)}
+SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30), "europa": ("london", 8 * 60), "utc": ("utc", None)}
+UTC_OPEN = None   # minutes after UTC midnight, from --open, for --session utc
 EPOCH = datetime.datetime(1970, 1, 1)
 
 
@@ -84,6 +87,10 @@ def utc_offset_hours(market, day):
 def session_open(session, day):
     """The session's open on that UTC day, as a naive UTC datetime."""
     market, local = SESSIONS[session]
+    if market == "utc":
+        if UTC_OPEN is None:
+            raise EntryError("--session utc needs --open HH:MM (UTC)")
+        local = UTC_OPEN
     mins = local - 60 * utc_offset_hours(market, day)
     return datetime.datetime.combine(day, datetime.time()) + datetime.timedelta(minutes=mins)
 
@@ -278,6 +285,9 @@ def describe(sym, res):
     lines = [head]
     lines.append("  OJO: en 4 semanas de velas de 1 minuto ninguna configuración de scalping ganó después de "
                  "comisiones. Esto marca el momento, no garantiza nada.")
+    if p["session"] == "utc":
+        lines.append("  Sesión libre: lejos de las aperturas la cripto se mueve menos (el fin de semana, unas 3 veces "
+                     "menos) y las comisiones pesan más.")
     if p["setup"] == "orb" and p["or_high"] is not None:
         lines.append("  Rango de apertura (%d min, hasta %s UTC): máximo %g, mínimo %g"
                      % (p["or_minutes"], p["range_ends_utc"], p["or_high"], p["or_low"]))
@@ -328,6 +338,16 @@ def _eval(a, now, bars):
 
 
 def _check_args(a):
+    global UTC_OPEN
+    if a.session == "utc":
+        if not a.open:
+            raise EntryError("--session utc needs --open HH:MM (UTC), e.g. --open 01:35")
+        try:
+            h, m = (int(x) for x in a.open.split(":"))
+            assert 0 <= h < 24 and 0 <= m < 60
+        except (ValueError, AssertionError):
+            raise EntryError("--open wants HH:MM in UTC, not %r" % a.open)
+        UTC_OPEN = h * 60 + m
     if a.setup == "level" and a.level is None:
         raise EntryError("--setup level needs --level PRICE")
     if a.setup == "level" and a.side == "both":
@@ -406,6 +426,7 @@ def main(argv=None):
         p.add_argument("--expire-hours", type=float, default=2.0)
         p.add_argument("--confirm", type=int, help="1-minute closes in a row outside the level (default 2)")
         p.add_argument("--date", help="the session's UTC date (default today)")
+        p.add_argument("--open", help="with --session utc: the session's start, HH:MM UTC")
 
     p = sub.add_parser("check", help="where the setup stands right now")
     common(p)

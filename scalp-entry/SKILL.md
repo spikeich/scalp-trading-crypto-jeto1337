@@ -58,6 +58,12 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
 | --- | --- | --- | --- |
 | `wallstreet` (por defecto) | 09:30 Nueva York | 14:30 | 11:30 |
 | `europa` | 08:00 Londres | 08:00 | 05:00 |
+| `utc` + `--open HH:MM` | cuando quieras (UTC) | | |
+
+La sesión libre (`--session utc --open 03:00`) sirve para practicar a
+cualquier hora: la cripto opera siempre. Pero lejos de las aperturas se mueve
+menos (el fin de semana, unas 3 veces menos en BTC) y en las pruebas ningún
+horario ganó después de comisiones.
 
 Estados: **DISPARÓ**, **ESPERANDO** (el rango se forma o todavía no hay 2
 cierres afuera), **VENCIDO**, **SIN DATOS**.

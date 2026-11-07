@@ -56,7 +56,8 @@ ATR_BARS = 14
 BAR = 60
 EPOCH = datetime.datetime(1970, 1, 1)
 NOTE = "Un stop es un plan, no una garantía: un mercado rápido o una cascada de liquidaciones puede ejecutarlo peor."
-SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30, 6 * 60 + 30), "europa": ("london", 8 * 60, 8 * 60 + 30)}
+SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30, 6 * 60 + 30), "europa": ("london", 8 * 60, 8 * 60 + 30),
+            "utc": ("utc", None, 120)}   # utc: a free 2-hour session starting at the entry's open_utc
 
 
 class PlanError(Exception):
@@ -84,9 +85,14 @@ def utc_offset_hours(market, day):
     return 0
 
 
-def session_times(session, day):
+def session_times(session, day, open_hhmm=None):
     """(open, close) naive UTC datetimes of the session on that day."""
     market, local, length = SESSIONS[session]
+    if market == "utc":
+        if not open_hhmm:
+            raise PlanError("a utc session needs its start: --open HH:MM, or an entry.json from scalp-entry")
+        h, m = (int(x) for x in open_hhmm.split(":"))
+        local = h * 60 + m
     opn = datetime.datetime.combine(day, datetime.time()) + datetime.timedelta(
         minutes=local - 60 * utc_offset_hours(market, day))
     return opn, opn + datetime.timedelta(minutes=length)
@@ -262,7 +268,8 @@ def gather(a):
         return {"symbol": yahoo_symbol(a.symbol), "side": a.side, "entry": a.entry,
                 "entry_time": a.entry_time, "date": a.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
                 "session": a.session or "wallstreet", "setup": "orb" if a.or_high is not None else "level",
-                "or_high": a.or_high, "or_low": a.or_low, "or_minutes": a.or_minutes, "confirm": 1}
+                "or_high": a.or_high, "or_low": a.or_low, "or_minutes": a.or_minutes, "confirm": 1,
+                "open_utc": a.open}
     if not os.path.exists(a.from_file):
         raise PlanError("no %s: run /scalp-entry first, or pass --symbol --side --entry" % a.from_file)
     e = read_json(a.from_file)
@@ -277,7 +284,7 @@ def gather(a):
             "entry_time": a.entry_time or e.get("entry_time"), "date": e.get("date"),
             "session": a.session or e.get("session") or "wallstreet", "setup": e.get("setup") or "orb",
             "or_high": orng.get("high"), "or_low": orng.get("low"), "or_minutes": orng.get("minutes") or 5,
-            "confirm": e.get("confirm") or 1}
+            "confirm": e.get("confirm") or 1, "open_utc": a.open or e.get("open_utc")}
 
 
 def build_plan(a):
@@ -285,7 +292,7 @@ def build_plan(a):
     stop_rule, stop_p = parse_stop(a.stop or "pct:0.25")
     target_rule, target_p = parse_target(a.target)
     day = datetime.date.fromisoformat(f["date"])
-    opn, close = session_times(f["session"], day)
+    opn, close = session_times(f["session"], day, f.get("open_utc"))
     atr, atr_n = None, None
     if stop_rule == "atr":
         bars = fetch_bars(f["symbol"], a.offline)
@@ -320,6 +327,9 @@ def build_plan(a):
                                                         "low": f["or_low"]},
         "flat_by": flat_by, "hold_minutes": a.hold, "interval": "1m", "confirm": f["confirm"],
     }
+    if f["session"] == "utc":
+        plan["open_utc"] = opn.strftime("%H:%M")
+        plan["window_utc"] = "%s-%s" % (opn.strftime("%H:%M"), "24:00" if close.date() > day else close.strftime("%H:%M"))
     if atr is not None:
         plan["atr"] = {"value": round(atr, 10), "bars": atr_n, "k": stop_p}
     if a.lev:
@@ -395,6 +405,7 @@ def main(argv=None):
     p.add_argument("--entry-time", help="the entry bar's close, UTC, e.g. 14:55")
     p.add_argument("--date", help="UTC date of the session, YYYY-MM-DD")
     p.add_argument("--session", choices=sorted(SESSIONS))
+    p.add_argument("--open", help="with --session utc: the session's start, HH:MM UTC")
     p.add_argument("--or-high", type=float)
     p.add_argument("--or-low", type=float)
     p.add_argument("--or-minutes", type=int, default=5)
