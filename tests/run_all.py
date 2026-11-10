@@ -27,7 +27,8 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = os.path.join(REPO, "tests", "data")
-BTC2D = D + "/BTC-2d1m.json"            # Yahoo 1-minute candles, 5 and 6 November 2026
+CHARTS = D + "/charts"                  # <PAIR>.json, as scalp-scanner orb --offline reads them
+BTC2D = CHARTS + "/BTC-USD.json"        # Yahoo 1-minute candles, 5 and 6 November 2026
 BTC28 = D + "/BTC-28d1m.json.gz"        # 28 days of them, for the time machine
 CH = D + "/chain"
 PIZZA = "a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d"
@@ -201,6 +202,13 @@ CASES = [
     ("scalp-scanner universe live", [SC, "universe"], [0], False, "criptos con más de 1000 M USD"),
     ("scalp-scanner orb live", [SC, "orb", "--at", "16:30", "--symbols", "BTC,ETH,SOL"], [0, 1], False,
      "RUPTURAS DE 1 MINUTO"),
+    ("scalp-scanner orb guardado", [SC, "orb", "--offline", CHARTS, "--now", "2026-11-06 16:30"], [0], True,
+     "LARGO 14:42"),
+    ("scalp-scanner orb sesión libre pasada la medianoche", [SC, "orb", "--session", "utc", "--open", "23:45",
+                                                             "--offline", CHARTS, "--now", "2026-11-06 00:10"],
+     [0], True, "LARGO 00:03"),
+    ("scalp-scanner orb sin carpeta", [SC, "orb", "--offline", "/nonexistent", "--now", "2026-11-06 16:30"], [1],
+     True, "--offline wants a folder"),
     ("scalp-scanner bad minutes", [SC, "orb", "--or-minutes", "0", "--now", "2026-11-06 16:30"], [1], True,
      "between 1 and 60"),
     ("scalp-scanner too early", [SC, "orb", "--now", "2026-11-06 14:33"], [1], True, "Run it after that"),

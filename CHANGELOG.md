@@ -28,7 +28,13 @@ A full review of the repo. What changed:
   labelled as an untested rule of thumb.
 - **scalp-social-info:** Bitcoin fees are no longer "very high" on an idle network (a
   fast fee under 5 sat/vB is always normal); `calendar --now`.
-- **Tests:** 113 offline cases that need no network (`--offline-only`), including
+- **scalp-scanner: the wrong-coin check.** Tickers repeat on Yahoo: the scanner compares
+  Yahoo's price with CoinGecko's and looks for the numbered pair when they differ. Coins
+  outside the top 100 by market cap are left out (`--max-rank`), the list is saved the
+  first time and flagged when it is over a day old, a fixed list of 12 large coins is
+  used when CoinGecko does not answer, and a free session can be scanned past UTC
+  midnight. `orb --offline` reads saved charts.
+- **Tests:** 116 offline cases that need no network (`--offline-only`), including
   midnight crossings and the two fill rules.
 
 ## 1.0.0 (2026-11-06)

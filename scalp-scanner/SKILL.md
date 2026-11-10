@@ -43,8 +43,14 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
 ## Qué hace
 
 - **`universe`:** las criptos con más de **1.000 M USD** de volumen en 24 horas
-  (`--min-volume`), como mucho 8 (`--limit`). Sin stablecoins ni copias. En
-  scalping el spread lo es todo: solo las más líquidas.
+  (`--min-volume`), como mucho 8 (`--limit`), dentro de las 100 de mayor
+  capitalización (`--max-rank`). Sin stablecoins ni copias. En scalping el
+  spread lo es todo: solo las más líquidas. A cada una le busca su par en
+  Yahoo y **compara el precio con el de CoinGecko**: los símbolos se repiten, y
+  si el precio no coincide es otra moneda. La lista se guarda en
+  `trader/universe.json` la primera vez; si tiene más de un día, avisa. Si
+  CoinGecko no responde y no hay lista guardada, usa una lista fija de las 12
+  más grandes y lo dice.
 - **`orb`:** el rango son los primeros **5 minutos** de la sesión
   (`--or-minutes`); una ruptura son **2 velas de 1 minuto seguidas** cerrando
   afuera (`--confirm`). Marca como débiles las que quedan a menos de 0,05 %
@@ -57,6 +63,10 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
 | --- | --- | --- | --- |
 | `wallstreet` (por defecto) | 09:30 Nueva York | 14:30 | 11:30 |
 | `europa` | 08:00 Londres | 08:00 | 05:00 |
+
+Con `--session utc --open HH:MM` escanea una sesión libre, que puede cruzar
+la medianoche UTC. `orb --offline CARPETA` lee gráficos guardados
+(`<PAR>.json`) en vez de la red: lo usan los tests.
 
 Una lista de rupturas no es una lista de compras. Lo que rompe para los dos
 lados es un rango sin dirección: mejor no tocarlo.
