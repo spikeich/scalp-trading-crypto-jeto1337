@@ -90,6 +90,9 @@ CASES = [
                                                   "--write", "trader/entry_mid.json"], [0], True,
      "DISPARÓ LARGO: la vela que cerró a las 00:03 UTC"),
     ("scalp-entry live", [EN, "check", "BTC"], [0, 1], False, "sesión wallstreet"),
+    ("scalp-entry live binance", [EN, "check", "BTC", "--source", "binance"], [0, 1], False,
+     "Precios de Binance (BTCUSDT)"),
+    ("scalp-entry live yahoo", [EN, "check", "BTC", "--source", "yahoo"], [0, 1], False, "Precios de Yahoo"),
 
     # ---- scalp-exit (reads the entry.json written above)
     ("scalp-exit plan", [EX, "plan", "--lev", "10", "--write"], [0], True, "0.25 % en contra"),
@@ -385,6 +388,7 @@ CASES = [
 
     # ---- scalp-alerts
     ("scalp-alerts now live", [AL, "now", "--symbol", "BTC,ETH"], [0], False, "BTC-USD"),
+    ("scalp-alerts now las tres fuentes", [AL, "now", "--symbol", "BTC,ETH", "--compare"], [0], False, "Binance"),
 ]
 
 UNIT = r'''
@@ -412,8 +416,43 @@ assert has("short fill and stop in one bar", "STOP"), out
 assert has("fill and target in one bar", "ENTRADA") and not has("fill and target in one bar", "OBJETIVO"), out
 assert has("target the bar after", "OBJETIVO"), out
 assert out["flat_at"] == ["2026-11-06 00:19:00", "2026-11-06 00:23:00", "2026-11-05 15:02:00", "None"], out
+def load(name, path):
+    sp = importlib.util.spec_from_file_location(name, path); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+    return m
+
+# --- the Binance adapter, with no network: the ticker rule and the paging
+en = load("en", "%s")
+pairs = {s: en.binance_pair(s) for s in ("BTC-USD", "UNI7083-USD", "HYPE32196-USD", "C98-USD", "^IXIC", "eth-usd")}
+assert pairs == {"BTC-USD": "BTCUSDT", "UNI7083-USD": "UNIUSDT", "HYPE32196-USD": "HYPEUSDT", "C98-USD": "C98USDT",
+                 "^IXIC": None, "eth-usd": "ETHUSDT"}, pairs
+calls = []
+def fake_page(host, pair, interval, first_ms, last_ms):
+    calls.append((pair, interval, first_ms, last_ms))
+    step = en.BINANCE_STEP[interval] * 1000
+    t0 = first_ms - first_ms %% step + (step if first_ms %% step else 0)
+    return [[t, "100.0", "101.5", "99.5", "100.5", "7", t + step - 1, "700.0"] for t in range(t0, last_ms + 1, step)][:en.BINANCE_MAX]
+en.binance_page = fake_page
+doc = en.binance_chart("UNI7083-USD", "5m", start=1700000000, end=1700000000 + 2500 * 300)
+res = doc["chart"]["result"][0]
+ts = res["timestamp"]
+assert len(calls) == 3 and all(c[0] == "UNIUSDT" for c in calls), calls
+assert ts == sorted(set(ts)) and all(b - a == 300 for a, b in zip(ts, ts[1:])), "paging left a gap or a repeat"
+assert res["meta"]["symbol"] == "UNI7083-USD" and res["meta"]["dataGranularity"] == "5m", res["meta"]
+assert res["indicators"]["quote"][0]["high"][0] == 101.5 and res["indicators"]["quote"][0]["volume"][0] == 700.0
+assert en.binance_name(doc) == "Binance (UNIUSDT)"
+def no_pair(host, pair, interval, first_ms, last_ms):
+    import urllib.error
+    raise urllib.error.HTTPError("u", 400, "Invalid symbol", None, None)
+en.binance_page = no_pair
+assert en.binance_chart("NOPE-USD", "5m", bars=10) is None
+def blocked(host, pair, interval, first_ms, last_ms):
+    import urllib.error
+    raise urllib.error.HTTPError("u", 451, "restricted location", None, None)
+en.binance_page = blocked
+assert en.binance_chart("BTC-USD", "5m", bars=10) is None      # every host blocked: the caller falls back to Yahoo
+out["binance adapter"] = {"candles": len(ts), "requests": len(calls), "pairs": pairs}
 print(json.dumps(out, ensure_ascii=False, indent=1))
-''' % AL
+''' % (AL, EN)
 
 
 def norm(text):

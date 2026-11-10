@@ -36,8 +36,9 @@ git clone https://github.com/spikeich/scalp-trading-crypto-jeto1337.git
 cp -r scalp-trading-crypto-jeto1337/scalp-* ~/.claude/skills/
 ```
 
-They need Python 3.8+ and outbound access to `query1.finance.yahoo.com`,
-`query2.finance.yahoo.com` and `api.coingecko.com`, plus `mempool.space` and
+They need Python 3.8+ and outbound access to `data-api.binance.vision` (or
+`api.binance.com`), `query1.finance.yahoo.com`, `query2.finance.yahoo.com` and
+`api.coingecko.com`, plus `mempool.space` and
 `eth.blockscout.com` for the blockchain and `www.theguardian.com`,
 `rss.nytimes.com` and `feeds.bbci.co.uk` for the news.
 
@@ -139,6 +140,21 @@ tests no hour of the day made money after fees.
 
 Entries count in the first 2 hours of a session; the time machine keeps 3, so
 the last entries can still be held to their time stop.
+
+## Where the prices come from
+
+| source | used for |
+| --- | --- |
+| **Binance** (`data-api.binance.vision`, no key) | first choice for every candle: the exchange's own prices and real volume, exact tickers, no gaps |
+| **Yahoo Finance** | the fallback when Binance does not list a coin or does not answer; long daily history for the news study |
+| **CoinGecko** | the list of coins (volume, market-cap rank), and a third price to compare |
+
+`--source binance` or `--source yahoo` forces one, and every output says which
+one answered. `alerts.py now --compare` shows the same coin on the three, side
+by side. Binance quotes in USDT and usually sits about 0.1 % above Yahoo and
+CoinGecko, which quote in dollars: do not mix sources inside one trade. The
+scanner checks each coin's Binance ticker against CoinGecko's price, so a
+delisted or look-alike pair is not read by mistake.
 
 ## Tests
 

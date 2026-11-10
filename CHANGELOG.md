@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0 (2026-11-10)
+
+- **Binance is now the first source of candles** (`data-api.binance.vision`, no key): the
+  exchange's own prices and real volume, exact tickers and no gaps. Yahoo stays as the
+  fallback, and CoinGecko as the list of coins and a third price. `--source
+  binance|yahoo` forces one; every output says which one answered. Long histories are
+  asked for in parallel (60 days of 5-minute candles in about 8 seconds, 28 days of
+  1-minute candles in about 12).
+- **`alerts.py now --compare`** shows a coin on Binance, Yahoo and CoinGecko side by side.
+- **The scanner records each coin's Binance pair**, checked against CoinGecko's price: a
+  delisted pair (XMR) or a look-alike ticker is left to Yahoo.
+- Binance quotes in USDT and sits about 0.1 % above Yahoo: the whole chain (entry, exit,
+  time machine, alerts) now reads the same source, so the prices agree.
+
 ## 1.1.0 (2026-11-10)
 
 A full review of the repo. What changed:

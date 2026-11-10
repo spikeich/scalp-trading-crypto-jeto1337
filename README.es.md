@@ -38,8 +38,9 @@ git clone https://github.com/spikeich/scalp-trading-crypto-jeto1337.git
 cp -r scalp-trading-crypto-jeto1337/scalp-* ~/.claude/skills/
 ```
 
-Necesitan Python 3.8+ y salida a `query1.finance.yahoo.com`,
-`query2.finance.yahoo.com` y `api.coingecko.com`, más `mempool.space` y
+Necesitan Python 3.8+ y salida a `data-api.binance.vision` (o
+`api.binance.com`), `query1.finance.yahoo.com`, `query2.finance.yahoo.com` y
+`api.coingecko.com`, más `mempool.space` y
 `eth.blockscout.com` para la blockchain y `www.theguardian.com`,
 `rss.nytimes.com` y `feeds.bbci.co.uk` para las noticias.
 
@@ -142,6 +143,21 @@ nuestras pruebas ningún horario ganó después de comisiones.
 
 Las entradas valen en las 2 primeras horas de la sesión; la máquina del tiempo
 guarda 3, para poder seguir las últimas hasta su salida por tiempo.
+
+## De dónde salen los precios
+
+| fuente | para qué se usa |
+| --- | --- |
+| **Binance** (`data-api.binance.vision`, sin clave) | primera opción para todas las velas: los precios de la exchange misma y su volumen real, símbolos exactos, sin huecos |
+| **Yahoo Finance** | el respaldo cuando Binance no tiene una cripto o no responde; historia diaria larga para el estudio de noticias |
+| **CoinGecko** | la lista de criptos (volumen, ranking por capitalización) y un tercer precio para comparar |
+
+`--source binance` o `--source yahoo` fuerza una, y cada salida dice cuál
+respondió. `alerts.py now --compare` muestra la misma cripto en las tres, lado
+a lado. Binance cotiza en USDT y suele quedar un 0,1 % arriba de Yahoo y
+CoinGecko, que cotizan en dólares: no mezcles fuentes dentro de una misma
+operación. El escáner comprueba el símbolo de cada cripto en Binance contra el
+precio de CoinGecko, así no se lee por error un par dado de baja o parecido.
 
 ## Tests
 
