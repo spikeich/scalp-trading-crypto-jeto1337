@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Scan the most traded coins and rank them for scalping.
+"""Read the market before scalping: the most traded coins, where each sits in its day,
+and which are liquid enough to scalp.
 
 Reads live data from CoinGecko (api.coingecko.com, no key needed). No other
 network, nothing written except what you pass with --json.
 
-    python3 scan.py                 # table + top 5 picks
-    python3 scan.py --top 8         # more picks
+    python3 scan.py                 # table + the liquid candidates
+    python3 scan.py --top 8         # more candidates
     python3 scan.py --json out.json # also save the raw rows
+
+A candidate trades over 1,000 M USD a day (the same floor as scalp-scanner's universe:
+scalping needs the tightest spreads), moved between 1.5 % and 14 % in the day, and is
+not pure speculation. The "sesgo" next to each one is a rule of thumb from where the
+price sits in its day. It was never backtested: read it as context, not as a signal.
 """
 import argparse
 import json
@@ -26,8 +32,8 @@ SKIP = {
     "frax", "lusd", "u", "wbt", "weeth", "reth", "jitosol", "msol", "bnsol",
 }
 
-MIN_VOLUME = 300e6     # below this, spreads on a normal exchange eat the edge
-MIN_RANGE = 5.0        # % high-low in 24h; less than this leaves no room
+MIN_VOLUME = 1000e6    # scalping needs the tightest spreads: the same floor as scalp-scanner
+MIN_RANGE = 1.5        # % high-low in 24h; under this a 0.5 % target inside 20 minutes is unlikely
 MAX_RANGE = 14.0       # more than this is usually one news candle, not a range
 MAX_TURNOVER = 0.5     # volume / market cap; above it is pure speculation
 
@@ -112,10 +118,11 @@ def main():
 
     at_low = sum(1 for r in rs[:25] if r["pos"] <= 10)
     print(f"\nMercado: {at_low} de 25 en el mínimo del día (pos% <= 10).")
-    print(f"\nTOP {len(picks)} PARA SCALPING")
+    print(f"\nCANDIDATAS PARA SCALPING: {len(picks)} (más de 1.000 M USD por día, rango del día de 1,5 a 14 %)")
     for i, r in enumerate(picks, 1):
         print(f"  {i}. {r['sym']:6} {r['price']:>11.5g}  rango {r['range']:.1f}%"
-              f"  vol ${r['volume']/1e6:,.0f}M  -> {bias(r)}  (id: {r['id']})")
+              f"  vol ${r['volume']/1e6:,.0f}M  -> sesgo a ojo: {bias(r)}")
+    print("El sesgo es una regla a ojo (dónde está el precio en su día): nunca se midió, no es una señal.")
 
     if a.json:
         json.dump({"rows": rs, "picks": picks}, open(a.json, "w"), indent=1)

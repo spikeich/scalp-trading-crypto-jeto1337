@@ -143,9 +143,12 @@ def check(plan, capital, lev, risk_pct, lim, stats, now):
                        % (stats["pnl"] - capital * risk_pct / 100, loss_cap))
     if len(stats["open"]) >= lim["max_open"]:
         reasons.append("ya tenés %d posiciones abiertas, el límite es %d" % (len(stats["open"]), lim["max_open"]))
-    if plan.get("entry_time"):
-        h, m = (int(x) for x in plan["entry_time"].split(":"))
-        sig = datetime.datetime.combine(datetime.date.fromisoformat(plan["date"]), datetime.time(h, m))
+    if plan.get("entry_at") or plan.get("entry_time"):
+        if plan.get("entry_at"):        # the full time: a session can cross UTC midnight
+            sig = datetime.datetime.strptime(plan["entry_at"], "%Y-%m-%d %H:%M")
+        else:
+            h, m = (int(x) for x in plan["entry_time"].split(":"))
+            sig = datetime.datetime.combine(datetime.date.fromisoformat(plan["date"]), datetime.time(h, m))
         age = (now - sig).total_seconds() / 60
         if age > lim["max_signal_age_min"]:
             reasons.append("la señal cerró a las %s UTC, hace %d minutos: en scalping, después de %d minutos ya es "

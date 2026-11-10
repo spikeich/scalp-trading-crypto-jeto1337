@@ -24,17 +24,21 @@ python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --symbol BTC --date 2026-11-06 
 python3 "${CLAUDE_SKILL_DIR}/timemachine.py" chart
 ```
 
-Otras opciones: `--session wallstreet|europa|utc` (`--window-utc`), `--until`,
-`--replays`, `--seed` (19), `--window` (2 minutos), `--offline`, `--now`.
+Otras opciones: `--session wallstreet|europa|utc` (con `--open HH:MM` para la
+libre), `--until`, `--hold`, `--confirm`, `--replays`, `--seed` (19), `--window`
+(2 minutos), `--offline`, `--now`. Con el plan de `/scalp-exit` no hace falta
+ninguna: lee la sesión, la apertura y la hora de salida del plan.
 Necesita `query2.finance.yahoo.com` (4 consultas: Yahoo da 7 días de velas de
 1 minuto por consulta y guarda unos 30).
 
 ## Cómo funciona
 
-1. **El banco de velas:** unas 4 semanas de velas de 1 minuto, de la ventana
-   de la sesión (las **2 primeras horas** de Wall Street o de Londres). Los
-   días a los que les faltan hasta 5 minutos se completan con una vela plana
-   al último cierre; los que tienen más huecos se dejan afuera.
+1. **El banco de velas:** unas 4 semanas de velas de 1 minuto, de las **3
+   horas** que siguen a la apertura (Wall Street, Londres o la hora de
+   `--open`): 2 horas en las que valen las entradas y 1 más para aguantar las
+   últimas. Una sesión libre puede cruzar la medianoche UTC. Los días a los
+   que les faltan hasta 5 minutos se completan con una vela plana al último
+   cierre; los que tienen más huecos se dejan afuera.
 2. **10.000 repeticiones** desde el precio de entrada hasta la **salida por
    tiempo** del plan (`flat_by`, entrada + 20 minutos): cada minuto se arma
    con una vela pasada del mismo minuto (±2), escalada al precio. Si una vela
@@ -44,9 +48,15 @@ Necesita `query2.finance.yahoo.com` (4 consultas: Yahoo da 7 días de velas de
 4. **El veredicto:** compara las veces que llegó primero el objetivo con lo que
    hace falta para empatar a ese R: 1 de cada (1 + R).
 
-**Las comisiones no están en esos R:** con stop de 0,25 % cuestan ~0,3 R por
-operación. Un veredicto "cerca del empate" en scalping es, en realidad,
-perder.
+5. **Después de comisiones.** Cada número sale también neto de las comisiones
+   de Binance (entrada y objetivo 0,02 %, stop y salida por tiempo 0,05 %). Con
+   stop de 0,25 % y objetivo 2R, ganar vale **+1,84 R** y perder cuesta
+   **1,28 R**: el objetivo tiene que llegar primero en el **41 %** de las
+   repeticiones que tocan un lado, no en el 33 %.
+
+**El veredicto que vale es el de "after fees"** (después de comisiones).
+Mostrale al usuario los dos, pero decidí con ese: un "cerca del empate" sin
+comisiones suele ser "se inclina hacia el stop" con comisiones.
 
 ## Lo que mostraron los datos
 

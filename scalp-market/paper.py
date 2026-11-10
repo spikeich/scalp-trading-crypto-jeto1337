@@ -8,10 +8,16 @@ Nothing is sent to any exchange. Standard library only.
     python3 paper.py --capital 3000 --offline BTC-1m.json   # replay on saved candles, instantly
 
 The rules, candle by candle (the candle's high and low, so a wick counts):
-  fill     a limit order at the plan's entry, from the candle after the signal.
-           Not touched within --fill-minutes (3): cancelled, nothing happens.
-  stop     touched after the fill: out at the stop (taker fee).
-  target   touched after the fill: out at the target (maker fee).
+  fill     a limit order at the plan's entry, from the candle after the signal: a buy
+           fills when the price is AT OR BELOW the entry, a sell when it is at or above
+           (a price that is already through the limit fills it at once: a limit order
+           does not protect you from a move against you, only from chasing the price).
+           Not reached within --fill-minutes (3): cancelled, nothing happens.
+  stop     touched from the fill candle on: out at the stop (taker fee). On the fill
+           candle the stop counts, because the price passes the entry before it can
+           reach the stop.
+  target   touched after the fill candle: out at the target (maker fee). On the fill
+           candle it does not count: the price may have been there before the fill.
            A candle that touches both counts as the stop.
   time     the plan's flat_by (entry + 20 minutes by default): out at that
            candle's close (taker fee), win or lose.
@@ -80,42 +86,61 @@ def at(plan, hhmm):
     return dt.datetime.combine(dt.date.fromisoformat(plan["date"]), dt.time(h, m))
 
 
+def plan_time(plan, key_at, key_hm, after=None):
+    """The plan's full UTC time (entry_at / flat_at) when it has one; else its date and
+    HH:MM, moved to the next day when that falls before `after` (a trade that crosses
+    UTC midnight)."""
+    if plan.get(key_at):
+        return dt.datetime.strptime(plan[key_at], "%Y-%m-%d %H:%M")
+    t = at(plan, plan[key_hm])
+    if after is not None and t <= after:
+        t += dt.timedelta(days=1)
+    return t
+
+
+def close_trade(st, plan, when, px, kind, fee):
+    long = plan["side"] == "buy"
+    e, q = plan["entry"], st["qty"]
+    gross = (px - e) * q if long else (e - px) * q
+    fees = e * q * MAKER + px * q * fee
+    pnl = gross - fees
+    st.update(state="CLOSED", exit_time=when, exit=px, kind=kind, pnl=round(pnl, 2), fees=round(fees, 2))
+    return "%s UTC  %s en %g: %+.2f USD (comisiones %.2f, %.2fR)" % (when, kind, px, pnl, fees, pnl / st["risk_usd"])
+
+
 def step(st, plan, c):
-    """Advance the trade by one closed candle. Returns an event line or None."""
+    """Advance the trade by one closed candle. Returns the event lines (none, one or two)."""
     start, o, h, l, cl = c
     long = plan["side"] == "buy"
     e, s, t = plan["entry"], plan["stop"], plan["target"]
     close_at = start + dt.timedelta(minutes=1)
     when = close_at.strftime("%H:%M")
-    if st["state"] == "WAIT":
-        if l <= e <= h:
-            st.update(state="OPEN", filled=when)
-            return "%s UTC  ENTRA %s %s en %g (orden límite llenada)" % (when, "LARGO" if long else "CORTO",
-                                                                      plan["symbol"], e)
-        if close_at >= st["fill_deadline"]:
-            st.update(state="CANCELLED", exit_time=when, pnl=0.0)
-            return "%s UTC  CANCELADA: el precio no volvió a %g en %d minutos. No pasó nada." % (
-                when, e, st["fill_minutes"])
-        return None
-    if st["state"] != "OPEN":
-        return None
-    q = st["qty"]
     hit_stop = l <= s if long else h >= s
     hit_target = h >= t if long else l <= t
-    if hit_stop or hit_target or close_at >= st["flat_by"]:
-        if hit_stop:
-            px, kind, fee = s, "STOP", TAKER
-        elif hit_target:
-            px, kind, fee = t, "OBJETIVO", MAKER
-        else:
-            px, kind, fee = cl, "SALIDA POR TIEMPO", TAKER
-        gross = (px - e) * q if long else (e - px) * q
-        fees = e * q * MAKER + px * q * fee
-        pnl = gross - fees
-        st.update(state="CLOSED", exit_time=when, exit=px, kind=kind, pnl=round(pnl, 2), fees=round(fees, 2))
-        return "%s UTC  %s en %g: %+.2f USD (comisiones %.2f, %.2fR)" % (
-            when, kind, px, pnl, fees, pnl / st["risk_usd"])
-    return None
+    if st["state"] == "WAIT":
+        if (l <= e) if long else (h >= e):      # at or through the limit: the order fills
+            st.update(state="OPEN", filled=when)
+            lines = ["%s UTC  ENTRA %s %s en %g (orden límite llenada)" % (when, "LARGO" if long else "CORTO",
+                                                                        plan["symbol"], e)]
+            # The same candle: the price reaches the entry before it can reach the stop, so a stop
+            # touched here came after the fill and counts. The target may have come before: it waits.
+            if hit_stop:
+                lines.append(close_trade(st, plan, when, s, "STOP", TAKER))
+            return lines
+        if close_at >= st["fill_deadline"]:
+            st.update(state="CANCELLED", exit_time=when, pnl=0.0)
+            return ["%s UTC  CANCELADA: el precio no llegó a %g en %d minutos. No pasó nada." % (
+                when, e, st["fill_minutes"])]
+        return []
+    if st["state"] != "OPEN":
+        return []
+    if hit_stop:
+        return [close_trade(st, plan, when, s, "STOP", TAKER)]
+    if hit_target:
+        return [close_trade(st, plan, when, t, "OBJETIVO", MAKER)]
+    if close_at >= st["flat_by"]:
+        return [close_trade(st, plan, when, cl, "SALIDA POR TIEMPO", TAKER)]
+    return []
 
 
 def main(argv=None):
@@ -137,9 +162,10 @@ def main(argv=None):
             if plan.get(k) in (None, ""):
                 raise PaperError("the plan has no %s" % k)
         sz = size(a.capital, a.risk, plan["entry"], plan["stop"], a.lev)
-        signal = at(plan, plan["entry_time"])
+        signal = plan_time(plan, "entry_at", "entry_time")
         st = {"state": "WAIT", "qty": sz["qty"], "risk_usd": sz["risk_usd"], "fill_minutes": a.fill_minutes,
-              "fill_deadline": signal + dt.timedelta(minutes=a.fill_minutes), "flat_by": at(plan, plan["flat_by"])}
+              "fill_deadline": signal + dt.timedelta(minutes=a.fill_minutes),
+              "flat_by": plan_time(plan, "flat_at", "flat_by", after=signal)}
         say("SIMULACIÓN %s %s: entrada %g, stop %g, objetivo %g, afuera a las %s UTC | %.6g unidades, %.2f USDT, "
             "margen %.2f a %gx, riesgo %.2f USD" % ("LARGO" if plan["side"] == "buy" else "CORTO", plan["symbol"],
                                                     plan["entry"], plan["stop"], plan["target"], plan["flat_by"],
@@ -161,8 +187,7 @@ def main(argv=None):
                 if c[0] < seen or c[0] + dt.timedelta(minutes=1) > (now if not a.offline else dt.datetime.max):
                     continue
                 seen = c[0] + dt.timedelta(minutes=1)
-                line = step(st, plan, c)
-                if line:
+                for line in step(st, plan, c):
                     say(line)
                 if st["state"] not in ("WAIT", "OPEN"):
                     break

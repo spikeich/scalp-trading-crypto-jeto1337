@@ -65,6 +65,11 @@ cualquier hora: la cripto opera siempre. Pero lejos de las aperturas se mueve
 menos (el fin de semana, unas 3 veces menos en BTC) y en las pruebas ningún
 horario ganó después de comisiones.
 
+Una sesión libre puede **cruzar la medianoche UTC** (las 21:00 de Argentina):
+pasada la medianoche, el mismo `--open 23:45` sigue siendo la sesión que
+abrió la noche anterior, hasta que vence. `trader/entry.json` guarda las
+horas completas (`open_at`, `entry_at`) y `date` es el día en que abrió.
+
 Estados: **DISPARÓ**, **ESPERANDO** (el rango se forma o todavía no hay 2
 cierres afuera), **VENCIDO**, **SIN DATOS**.
 

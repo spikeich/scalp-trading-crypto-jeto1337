@@ -323,7 +323,7 @@ def cmd_patterns(a):
 
 def cmd_calendar(a):
     cal = read_json(a.calendar)["events"]
-    today = utc_now().date()
+    today = parse_now(a.now).date()
     upcoming = [c for c in cal if today <= dt.date.fromisoformat(c["date"]) <= today + dt.timedelta(days=a.days)]
     if not upcoming:
         print("No hay eventos cargados en los próximos %d días. Buscalos y agregalos a %s." % (a.days, a.calendar))
@@ -659,6 +659,8 @@ def parse_onchain(text, offline=None):
 # ---------------------------------------------------------------- the chain right now
 
 MEMPOOL = "https://mempool.space/api"
+FEE_FLOOR = 2.0      # sat/vB: blocks with a median under this are idle, compare against at least 2
+FEE_CALM = 5         # sat/vB: a fast fee under this is never "high"
 BLOCKSCOUT = "https://eth.blockscout.com/api/v2"
 
 
@@ -685,8 +687,11 @@ def cmd_chain(a):
     pool = chain_get(MEMPOOL + "/mempool", off)
     blocks = chain_get(MEMPOOL + "/v1/blocks", off)
     med = st.median([(b.get("extras") or {}).get("medianFee") or 0 for b in blocks]) or 1.0
-    ratio = fees["fastestFee"] / med
-    level = "muy altas" if ratio >= 3 else "altas" if ratio >= 1.5 else "normales"
+    ratio = fees["fastestFee"] / max(med, FEE_FLOOR)
+    if fees["fastestFee"] < FEE_CALM:
+        level = "normales"            # a few sat/vB is an idle network, whatever the ratio says
+    else:
+        level = "muy altas" if ratio >= 3 else "altas" if ratio >= 1.5 else "normales"
     print("\nBitcoin (mempool.space)")
     print("  Comisiones: rápida %s sat/vB, media hora %s, una hora %s. Mediana de los últimos %d bloques: %.1f "
           "-> %s" % (fees["fastestFee"], fees["halfHourFee"], fees["hourFee"], len(blocks), med, level))
@@ -1087,6 +1092,7 @@ def main(argv=None):
             p.add_argument("--json", help="also save the rows")
     p = sub.add_parser("calendar")
     p.add_argument("--days", type=int, default=45)
+    p.add_argument("--now", help="pretend it is this UTC time")
     p.add_argument("--scope")
     p.add_argument("--type")
     p = sub.add_parser("verify")

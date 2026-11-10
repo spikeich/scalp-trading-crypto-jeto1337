@@ -21,8 +21,10 @@ python3 "${CLAUDE_SKILL_DIR}/alerts.py" watch --symbol BTC --above 76000 --below
 python3 "${CLAUDE_SKILL_DIR}/alerts.py" now --symbol BTC,ETH
 ```
 
-Mira cada 20 segundos (`--every`) la última vela de 1 minuto cerrada, con su
-máximo y su mínimo, así una mecha entre dos miradas igual cuenta. Imprime una
+Mira cada 20 segundos (`--every`) las velas de 1 minuto cerradas, con su
+máximo y su mínimo: cada minuto se juzga **una sola vez y en orden**, así una
+mecha entre dos miradas igual cuenta, y si una mirada falla la siguiente se
+pone al día. Imprime una
 línea cuando arranca, una por alerta y un "sigue vigilando" cada 5 minutos
 (`--heartbeat`). Termina cuando el scalp terminó (stop, objetivo, orden que no
 se llenó o salida por tiempo) o a la hora (`--max-hours`). Corrélo bajo
@@ -31,9 +33,13 @@ se llenó o salida por tiempo) o a la hora (`--max-hours`). Corrélo bajo
 | evento | qué quiere decir |
 | --- | --- |
 | ENTRADA | el precio llegó a la entrada: una orden límite ahí se llenaba |
-| STOP / OBJETIVO | tocado después de la entrada: el scalp terminó |
+| STOP | tocado en el minuto de la entrada o después: el scalp terminó con pérdida (el precio pasa por la entrada antes de llegar al stop) |
+| OBJETIVO | tocado en un minuto posterior al de la entrada: el scalp terminó en ganancia |
 | PERDIDA | llegó al stop o al objetivo sin pasar por la entrada: la orden no se llenó, cancelala |
-| HORA DE SALIR | la salida por tiempo del plan: afuera, gane o pierda |
+| HORA DE SALIR | la salida por tiempo del plan (aunque cruce la medianoche UTC): afuera, gane o pierda |
+
+Si el plan ya venció cuando arranca (su hora de salida pasó), lo dice y no
+vigila nada: hay que armar un plan nuevo.
 
 Yahoo puede ir uno o dos minutos atrás de Binance: en scalping eso es mucho.
 Para operar de verdad, mirá el precio en la app de la exchange.

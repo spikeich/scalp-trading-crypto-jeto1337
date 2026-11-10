@@ -1,7 +1,7 @@
 {
   "name": "scalp-trading-crypto-jeto1337",
   "description": "Eight Claude skills to practise crypto scalping on 1-minute candles: news and on-chain checks first, 5-minute opening-range breaks at the London and Wall Street opens, tight stops and time stops, fee-aware sizing up to 10x isolated, a 1-minute time machine and paper trading. In our tests scalping lost after fees. Never places orders.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Jeto (@codegeas1337)"
   },

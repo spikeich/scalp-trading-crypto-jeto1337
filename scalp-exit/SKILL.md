@@ -43,7 +43,7 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
 | --- | --- | --- |
 | stop | `pct:0.25` (0,25 % de la entrada) | `pct:X`, `or-mid`, `or-far`, `price:X`, `atr:K` |
 | objetivo | `2R` | `1.5R`, `3R`, `price:X` |
-| salida por tiempo | `--hold 20` minutos desde la entrada | nunca después de 5 minutos antes del fin de la sesión |
+| salida por tiempo | `--hold 20` minutos desde la entrada | `--flat-by HH:MM` para fijar la hora |
 
 - **Se rechaza** un stop de menos de **0,15 %**: las comisiones de ida y vuelta
   (~0,07 %) se comerían la mitad.
@@ -52,6 +52,9 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
   objetivo 2R queda en ~1,44R neto; con 1,5R, menos de 1.
 - Con `--lev` calcula la liquidación en margen aislado y rechaza el plan si
   llega antes que el stop. Con stops de 0,25 %, a 10x queda a ~9,5 %.
+
+El plan guarda las horas completas (`entry_at`, `flat_at`), así que un scalp
+puede cruzar la medianoche UTC (las 21:00 de Argentina) sin confundir el día.
 
 Un stop es un plan, no una garantía: un mercado rápido lo puede ejecutar peor.
 

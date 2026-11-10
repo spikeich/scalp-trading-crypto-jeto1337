@@ -5,10 +5,12 @@ Scalping take on crypto-timemachine (skill-cryptos-jeto1337), itself a port of
 trader-timemachine from Jakeschincariol/day-trader-skill (MIT, see
 LICENSE-day-trader-skill). Same algorithm, on 1-minute candles:
 
-  --session wallstreet   the first 2 hours after 09:30 New York (default)
-  --session europa       the first 2 hours after 08:00 London
-  --session utc --window-utc HH:MM-HH:MM   a fixed UTC window
-Each day's window is worked out from that day's own daylight-time offsets.
+  --session wallstreet   from 09:30 New York (default)
+  --session europa       from 08:00 London
+  --session utc --open HH:MM   a free session that starts at that UTC time
+A session is the 3 hours after its open: 2 hours in which entries count (scalp-entry
+expires then) and 1 more to hold the last ones. Each day's open is worked out from
+that day's own daylight-time offsets, and a free session may cross UTC midnight.
 Symbols are Yahoo crypto pairs: BTC-USD, ETH-USD ... All times UTC, 24-hour clock.
 
 Replays a planned scalp before you risk a dollar: 10,000 simulated runs from the
@@ -20,6 +22,8 @@ on every past session in the data, each trade held at most the same time.
     python3 timemachine.py run --until 14:55            # end each replay at another time
     python3 timemachine.py run --symbol BTC --date 2026-11-06 --side buy \\
         --entry 75783 --stop 75593 --target 76163 --entry-time 14:42 --hold 20
+    python3 timemachine.py run --session utc --open 23:45 --symbol BTC --date 2026-11-05 \\
+        --entry 76129 --stop 75938 --target 76511 --entry-time 00:03   # --date is the day it opened
     python3 timemachine.py chart                        # ASCII fan chart of the replays
 
 How the replays work:
@@ -36,7 +40,12 @@ How the replays work:
   4. Outcomes: target, stop, or neither (still open at --until: the time stop).
   5. History: the plan's rule (opening range of the same minutes, the same confirm
      closes, the same stop rule and target R, out after --hold minutes) on each past
-     session. Fees are not in these R numbers: about 0.3 R a trade at a 0.25 % stop.
+     session, entries in the first 2 hours.
+  6. Fees: every number is also given after Binance futures fees (limit entry and
+     target at maker 0.02 %, stop and time exits at taker 0.05 %). At a 0.25 % stop a
+     2R win is worth about +1.84R and a loss costs about 1.28R, so the target has to
+     come first in 41 % of the decided replays to break even, not 33 %. The verdict
+     "after fees" is the one that counts for a scalp.
 
 The verdict compares target / (target + stop) with 1 / (1 + R), as in crypto-timemachine:
   less than 5 points    close to break-even
@@ -77,10 +86,13 @@ CHUNK_DAYS = 7       # Yahoo gives 7 days of 1-minute candles per request
 CHUNKS = 4           # and keeps about 30 days: 4 requests = 28 days
 MAX_GAP = 5          # missing minutes a session may have (filled flat at the last close)
 HOLD = 20            # default time stop, minutes
+WINDOW = 180         # minutes of a session: ENTRY_MIN of entries plus an hour to hold the last ones
+ENTRY_MIN = 120      # entries count in the first 2 hours after the open (scalp-entry expires then)
+DAY = 24 * 60
 # name: (anchor market, local open in minutes, length in minutes)
 SESSIONS = {
-    "wallstreet": ("ny", 9 * 60 + 30, 120),   # the first 2 hours after the New York open
-    "europa": ("london", 8 * 60, 120),        # the first 2 hours after the London open
+    "wallstreet": ("ny", 9 * 60 + 30, WINDOW),   # from the New York open
+    "europa": ("london", 8 * 60, WINDOW),        # from the London open
 }
 SESSION = SESSIONS["wallstreet"]          # set_session() changes it
 SESSION_NAME = "wallstreet"
@@ -88,6 +100,7 @@ SESSION_BARS = SESSION[2] // BM
 OPEN_MIN = 14 * 60 + 30                   # the plan day's open and close in UTC: set_plan_day()
 CLOSE_MIN = OPEN_MIN + SESSION[2]
 MIN_SESSIONS = 15
+MAKER, TAKER = 0.0002, 0.0005   # Binance futures: limit entry and target at maker, stop and time exits at taker
 SAMPLE_PATHS = 160
 BAND_PATHS = 2000
 BAND_Q = (0.05, 0.25, 0.5, 0.75, 0.95)
@@ -99,12 +112,13 @@ EPOCH = datetime.datetime(1970, 1, 1)
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
-def set_session(name, window_utc=None):
-    """Pick the session: a named market window, or 'utc' with --window-utc."""
+def set_session(name, open_hhmm=None):
+    """Pick the session: a named market open, or 'utc' with its own open time."""
     global SESSION, SESSION_BARS, SESSION_NAME
     if name == "utc":
-        a, b = parse_window(window_utc)
-        SESSION = ("utc", a, b - a)
+        if not open_hhmm:
+            raise TMError("--session utc needs --open HH:MM (UTC), or a plan from scalp-exit that carries it")
+        SESSION = ("utc", parse_clock(open_hhmm, "--open") % DAY, WINDOW)
     elif name in SESSIONS:
         SESSION = SESSIONS[name]
     else:
@@ -151,20 +165,6 @@ def set_plan_day(day):
     CLOSE_MIN = OPEN_MIN + SESSION[2]
 
 
-def parse_window(text):
-    """'13:30-20:00' (UTC) -> (open, close) in minutes."""
-    m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$", str(text or ""))
-    if not m:
-        raise TMError("--window-utc wants HH:MM-HH:MM in UTC, e.g. 13:30-20:00, not %r" % text)
-    a = int(m.group(1)) * 60 + int(m.group(2))
-    b = int(m.group(3)) * 60 + int(m.group(4))
-    if b == 0:
-        b = 24 * 60
-    if not 0 <= a < b <= 24 * 60 or b - a < 30:
-        raise TMError("--window-utc must be inside one UTC day and at least 30 minutes long")
-    return a, b
-
-
 def tick(price):
     """Price step for rounding: about 1/10,000 of the price (0.01 at 100, 0.0001 at 1)."""
     if price <= 0:
@@ -183,9 +183,15 @@ class TMError(Exception):
 
 # ---------------------------------------------------------------- time (UTC everywhere)
 
-def to_eastern(utc):
-    """Kept under the original name: crypto bars stay in UTC."""
-    return utc.replace(tzinfo=None)
+def session_day(now):
+    """The date of the session that `now` falls in: a free session that opened yesterday
+    can still be running after UTC midnight."""
+    day = now.date()
+    prev = day - datetime.timedelta(days=1)
+    mins = now.hour * 60 + now.minute
+    if mins < open_utc(day) and mins + DAY - open_utc(prev) < SESSION[2]:
+        return prev
+    return day
 
 
 def parse_now(text):
@@ -225,11 +231,11 @@ def parse_clock(text, what):
 
 def clock12(minutes):
     """Kept under the original name: prints a 24-hour UTC clock."""
-    return "%02d:%02d UTC" % divmod(minutes, 60)
+    return "%02d:%02d UTC" % divmod(minutes % DAY, 60)
 
 
 def clock24(minutes):
-    return "%02d:%02d" % divmod(minutes, 60)
+    return "%02d:%02d" % divmod(minutes % DAY, 60)
 
 
 # ---------------------------------------------------------------- data
@@ -392,15 +398,18 @@ def parse_bars(result, now_utc):
             dropped["off_grid"] += 1
             continue
         start = utc_of(ts)
-        local = to_eastern(start)
-        mins = local.hour * 60 + local.minute - open_utc(local.date())
+        day = start.date()
+        mins = start.hour * 60 + start.minute - open_utc(day)
+        if mins < 0:        # before today's open: it may be yesterday's session, past UTC midnight
+            day -= datetime.timedelta(days=1)
+            mins = start.hour * 60 + start.minute + DAY - open_utc(day)
         if mins < 0 or mins >= SESSION_BARS * BM:
             dropped["outside_hours"] += 1
             continue
         if start + datetime.timedelta(seconds=INTERVAL) > as_of:
             dropped["not_complete"] += 1
             continue
-        bars[ts] = {"date": local.date().isoformat(), "slot": mins // BM, "start": local.strftime("%H:%M"),
+        bars[ts] = {"date": day.isoformat(), "slot": mins // BM, "start": start.strftime("%H:%M"),
                     "o": o, "h": h, "l": l, "c": c, "v": v or 0}
     return meta, [bars[t] for t in sorted(bars)], dropped
 
@@ -453,6 +462,12 @@ def pct(a, q):
     return a[min(len(a) - 1, int(q * len(a)))]
 
 
+def net_r(entry, exit_price, risk, long, exit_fee):
+    """A trade's result after fees, in units of the plan's risk: limit entry at maker, exit at exit_fee."""
+    gross = (exit_price - entry) if long else (entry - exit_price)
+    return (gross - entry * MAKER - exit_price * exit_fee) / risk
+
+
 def simulate(pool, entry, stop, target, k, last, replays=10000, seed=19, window=2, side="buy"):
     """Monte Carlo replays of bars k+1..last. Same draws and order as the reel's sim.py."""
     long = side == "buy"
@@ -496,6 +511,12 @@ def simulate(pool, entry, stop, target, k, last, replays=10000, seed=19, window=
                 if o == "target" or (o == "close" and (p > entry if long else p < entry)))
     Rs = [r_target if o == "target" else -1.0 if o == "stop" else ((p - entry) if long else (entry - p)) / risk
           for o, p in zip(outcomes, closes)]
+    # The same replays after Binance fees, in units of the plan's risk: a win is worth less
+    # than the target's R and a loss costs more than 1R.
+    win = net_r(entry, target, risk, long, MAKER)
+    loss = net_r(entry, stop, risk, long, TAKER)
+    net = [win if o == "target" else loss if o == "stop" else net_r(entry, p, risk, long, TAKER)
+           for o, p in zip(outcomes, closes)]
     srt = sorted(closes)
     # percentile bands per bar for the fan chart: a second run of 2,000 paths, same seed
     rng = random.Random(seed)
@@ -527,6 +548,8 @@ def simulate(pool, entry, stop, target, k, last, replays=10000, seed=19, window=
         "median_close": rnd(pct(srt, 0.5)), "p5_close": rnd(pct(srt, 0.05)),
         "p95_close": rnd(pct(srt, 0.95)), "avg_R": round(statistics.mean(Rs), 3),
         "r_at_target": r_target, "band_paths": BAND_PATHS, "bands": bands, "sample_paths": paths,
+        "net": {"win_R": round(win, 3), "loss_R": round(loss, 3), "avg_R": round(statistics.mean(net), 3),
+                "break_even": round(-loss / (win - loss), 4)},
         "hist": {"lo": rnd(lo_), "hi": rnd(hi_), "bins": bins},
     }
 
@@ -568,7 +591,7 @@ def history_replay(sessions, rule, last, side="buy"):
         oh, ol = opening_range(D, n)
         need = rule.get("confirm", 1)
         out = lambda i: D[i]["c"] > oh if long else D[i]["c"] < ol
-        kk = next((i for i in range(n + need - 1, SESSION_BARS - 1)
+        kk = next((i for i in range(n + need - 1, min(SESSION_BARS - 1, ENTRY_MIN // BM))
                    if all(out(j) for j in range(i - need + 1, i + 1))), None)
         if kk is None:
             continue
@@ -590,8 +613,10 @@ def history_replay(sessions, rule, last, side="buy"):
         cl = D[end]["c"]
         R = ((t - e) if long else (e - t)) / risk if oc == "target" else -1.0 if oc == "stop" else \
             ((cl - e) if long else (e - cl)) / risk
+        Rn = net_r(e, t, risk, long, MAKER) if oc == "target" else net_r(e, s, risk, long, TAKER) if oc == "stop" \
+            else net_r(e, cl, risk, long, TAKER)
         trades.append({"date": d, "time": clock12(open_utc(d) + BM * (kk + 1)), "entry": e, "stop": s, "target": t,
-                       "outcome": oc or "close", "R": round(R, 2)})
+                       "outcome": oc or "close", "R": round(R, 2), "R_net": round(Rn, 2)})
     return {
         "sessions": len(sessions), "triggered": len(trades),
         "target": sum(1 for x in trades if x["outcome"] == "target"),
@@ -599,6 +624,7 @@ def history_replay(sessions, rule, last, side="buy"):
         "close": sum(1 for x in trades if x["outcome"] == "close"),
         "green": sum(1 for x in trades if x["R"] > 0),
         "avg_R": round(statistics.mean(x["R"] for x in trades), 3) if trades else None,
+        "avg_R_net": round(statistics.mean(x["R_net"] for x in trades), 3) if trades else None,
         "rule": rule, "trades": trades,
     }
 
@@ -621,10 +647,10 @@ def load_plan(a, now_utc):
         missing = [f for f in ("entry", "stop", "target", "entry_time") if getattr(a, f) is None]
         if missing:
             raise TMError("with --symbol also give %s" % ", ".join("--" + m.replace("_", "-") for m in missing))
-        raw = {"symbol": a.symbol, "side": a.side, "date": a.date or to_eastern(now_utc).date().isoformat(),
+        raw = {"symbol": a.symbol, "side": a.side, "date": a.date or session_day(now_utc).isoformat(),
                "entry": a.entry, "stop": a.stop, "target": a.target, "entry_time": a.entry_time,
                "setup": a.setup, "opening_range": {"minutes": a.or_minutes}, "stop_rule": a.stop_rule,
-               "interval": "1m", "hold_minutes": a.hold}
+               "interval": "1m", "hold_minutes": a.hold, "confirm": a.confirm}
         src = "flags"
     else:
         if not os.path.exists(a.plan):
@@ -667,8 +693,10 @@ def normalize_plan(raw, src="flags"):
         raise TMError("a sell needs target < entry < stop (got target %s, entry %s, stop %s)" % (target, entry, stop))
     k = None
     if raw.get("entry_time"):
-        close_min = parse_clock(raw["entry_time"], "entry_time")
-        k = (close_min - OPEN_MIN) // BM - 1
+        rel = parse_clock(raw["entry_time"], "entry_time") - OPEN_MIN
+        if rel <= 0:
+            rel += DAY          # after UTC midnight, in a session that opened the day before
+        k = rel // BM - 1
     if raw.get("entry_bar") is not None:
         try:
             kb = int(raw["entry_bar"])
@@ -781,6 +809,28 @@ def verdict(mc):
             "it did in %.0f %% (%s)." % (head, round(r, 2), 100 * even, 100 * share, odds))
 
 
+def verdict_net(mc):
+    """The same comparison after fees: the lines that count for a scalp."""
+    n = mc.get("net")
+    if not n:
+        return []
+    out = ["After Binance fees (entry and target 0.02 %%, stop and time exits 0.05 %%): a win is worth %+.2fR and a "
+           "loss costs %.2fR. Average R after fees: %+.3f." % (n["win_R"], -n["loss_R"], n["avg_R"])]
+    pt, ps = mc["p_target"], mc["p_stop"]
+    if pt + ps > 0:
+        share, even = pt / (pt + ps), n["break_even"]
+        d = share - even
+        if abs(d) < COIN_FLIP:
+            head = "close to break-even"
+        elif abs(d) < STRONG:
+            head = "leans toward the target" if d > 0 else "leans toward the stop"
+        else:
+            head = "strongly toward the target" if d > 0 else "strongly toward the stop"
+        out.append("Verdict after fees: %s. The target has to come first in %.0f %% of the replays that hit one "
+                   "side to pay the fees; it did in %.0f %%." % (head, 100 * even, 100 * share))
+    return out
+
+
 def verdict_notes(mc):
     """The lines printed right below the verdict, so nothing reads as one-sided."""
     notes = []
@@ -817,9 +867,12 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
     if until is None and plan.get("flat_by"):
         until = plan["flat_by"]
     if until is None:
-        until_min = min(end_min, OPEN_MIN + BM * (k + 1) + plan["hold_minutes"])
+        rel = BM * (k + 1) + plan["hold_minutes"]
     else:
-        until_min = min(end_min, parse_clock(until, "--until"))
+        rel = parse_clock(until, "--until") - OPEN_MIN
+        if rel <= 0:
+            rel += DAY          # the time stop falls after UTC midnight
+    until_min = min(end_min, OPEN_MIN + rel)
     last = (until_min - OPEN_MIN) // BM - 1
     if last <= k:
         raise TMError("--until %s leaves nothing to replay after the %s entry" % (clock12(until_min),
@@ -868,6 +921,7 @@ def time_machine(text, plan, now_utc, replays=10000, seed=19, window=2, until=No
         "history": history,
         "verdict": verdict(mc),
         "verdict_notes": verdict_notes(mc),
+        "verdict_net": verdict_net(mc),
         "warnings": warn,
         "note": ("A simulation built from %s's own last %d full sessions (%s, %s-%s UTC on the plan day). "
                  "It is not a prediction: news, liquidations and exchange outages can do things those "
@@ -916,15 +970,17 @@ def report(doc):
                                                            "%g %% from the entry" % ru.get("stop_pct", 0))
         if h["triggered"]:
             lines.append("History: the same rule (%d-min opening range%s, stop at the %s, %gR target) on each of "
-                         "those %d real sessions fired %d times: %d target, %d stop, %d neither. Average R %+.3f."
+                         "those %d real sessions fired %d times: %d target, %d stop, %d neither. Average R %+.3f"
+                         "%s."
                          % (ru["or_minutes"], (", %d closes in a row outside" % ru["confirm"])
                             if ru.get("confirm", 1) > 1 else "", stop_words, ru["target_r"], h["sessions"],
-                            h["triggered"], h["target"], h["stop"], h["close"], h["avg_R"]))
+                            h["triggered"], h["target"], h["stop"], h["close"], h["avg_R"],
+                            (", %+.3f after fees" % h["avg_R_net"]) if h.get("avg_R_net") is not None else ""))
         else:
             lines.append("History: the same rule never fired in those %d sessions." % h["sessions"])
     else:
         lines.append("History: " + h.get("note", "skipped."))
-    lines += ["", doc["verdict"]] + list(doc.get("verdict_notes") or []) + [""]
+    lines += ["", doc["verdict"]] + list(doc.get("verdict_notes") or []) + list(doc.get("verdict_net") or []) + [""]
     for w in doc.get("warnings") or []:
         lines.append("Note: " + w + ".")
     if doc["data"]["short_sessions_left_out"]:
@@ -1012,7 +1068,6 @@ def cmd_run(a):
         print("\n".join(report(doc)))
         if a.write:
             print("Wrote %s." % a.write)
-        print("Fees are not in these R numbers: about 0.3 R a trade at a 0.25 % stop.")
         print("Next: /scalp-risk sizes it to your capital and checks your limits.")
     return 0
 
@@ -1030,7 +1085,8 @@ def cmd_chart(a):
     else:
         doc = compute(a)
     print("\n".join(render_chart(doc)))
-    print("\n".join([doc.get("verdict", "")] + list(doc.get("verdict_notes") or [])))
+    print("\n".join([doc.get("verdict", "")] + list(doc.get("verdict_notes") or [])
+                    + list(doc.get("verdict_net") or [])))
     return 0
 
 
@@ -1043,9 +1099,9 @@ def main(argv=None):
         p.add_argument("--symbol", help="or give the plan as flags: ETH, BTC-USD, SOLUSDT ...")
         p.add_argument("--session", choices=sorted(SESSIONS) + ["utc"],
                        help="the daily window (default: the plan's, else wallstreet)")
-        p.add_argument("--window-utc", help="with --session utc: a fixed UTC window, e.g. 00:00-06:00")
+        p.add_argument("--open", help="with --session utc: the session's start, HH:MM UTC")
         p.add_argument("--side", default="buy", choices=["buy", "sell"])
-        p.add_argument("--date", help="the plan's day, YYYY-MM-DD (default today, UTC)")
+        p.add_argument("--date", help="the day the session opened, YYYY-MM-DD (default: the session now running)")
         p.add_argument("--entry", type=float)
         p.add_argument("--stop", type=float)
         p.add_argument("--target", type=float)
@@ -1053,6 +1109,8 @@ def main(argv=None):
         p.add_argument("--setup", default="orb")
         p.add_argument("--or-minutes", type=int, default=5)
         p.add_argument("--hold", type=int, default=HOLD, help="with --symbol: minutes in the trade at most")
+        p.add_argument("--confirm", type=int, default=2,
+                       help="with --symbol: closes in a row the history's rule waits for (scalp-entry's default, 2)")
         p.add_argument("--stop-rule", default="auto", choices=["auto", "or_mid", "or_low", "or_high", "pct"])
         p.add_argument("--replays", type=int, default=10000)
         p.add_argument("--seed", type=int, default=19)
@@ -1075,15 +1133,15 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
-        session, window = a.session, a.window_utc
-        if not session and not a.symbol and os.path.exists(a.plan):
+        session, opn = a.session, a.open
+        if not a.symbol and os.path.exists(a.plan):
             try:
                 with open(a.plan, encoding="utf-8") as fh:
                     raw = json.load(fh) or {}
-                session, window = raw.get("session"), window or raw.get("window_utc")
+                session, opn = session or raw.get("session"), opn or raw.get("open_utc")
             except (OSError, ValueError):
-                session = None
-        set_session(session if session in SESSIONS or session == "utc" else "wallstreet", window)
+                pass
+        set_session(session if session in SESSIONS or session == "utc" else "wallstreet", opn)
         return {"run": cmd_run, "chart": cmd_chart}[a.cmd](a)
     except TMError as e:
         print("timemachine.py: %s" % e, file=sys.stderr)

@@ -51,10 +51,10 @@ Necesitan Python 3.8+ y salida a `query1.finance.yahoo.com`,
 | `/scalp-scanner` | **Qué está rompiendo.** Solo las criptos más líquidas (más de 1.000 M USD por día) que rompen los primeros 5 minutos de Londres o de Wall Street con 2 cierres de 1 minuto seguidos. |
 | `/scalp-entry` | **Cuándo entrar.** Vela por vela, el momento en que 2 cierres de 1 minuto seguidos quedan afuera del rango o de un nivel. Las entradas vencen 2 horas después de la apertura. |
 | `/scalp-exit` | **Dónde salir.** Stop de 0,25 %, objetivo 2R y salida a los 20 minutos por defecto, con el R neto de comisiones y la liquidación para tu apalancamiento. |
-| `/scalp-timemachine` | **¿Tiene ventaja?** 10.000 repeticiones de los 20 minutos siguientes con las velas de 1 minuto de esa cripto en las últimas 4 semanas, y la misma regla en cada día pasado. |
+| `/scalp-timemachine` | **¿Tiene ventaja?** 10.000 repeticiones de los 20 minutos siguientes con las velas de 1 minuto de esa cripto en las últimas 4 semanas, y la misma regla en cada día pasado. Cada número sale dos veces: antes y **después de las comisiones de Binance**, y el veredicto que vale es el de después. |
 | `/scalp-risk` | **¿Entra en tus límites?** 0,5 % de riesgo por operación, hasta 10x aislado, R neto de al menos 1,2, un scalp a la vez, 3 pérdidas y se termina el día, una señal de más de 3 minutos ya es vieja. Imprime la orden para cargar a mano en Binance. |
-| `/scalp-alerts` | **Mientras está abierto.** Entrada llenada, stop, objetivo, una orden límite que no se llenó, hora de salir, con el máximo y el mínimo de la última vela de 1 minuto cada 20 segundos. |
-| `/scalp-market` | **Tamaño y simulación.** El tamaño según tu riesgo (no según el apalancamiento) y la simulación del plan sobre velas reales de 1 minuto, con comisiones, en USD. |
+| `/scalp-alerts` | **Mientras está abierto.** Entrada llenada, stop, objetivo, una orden límite que no se llenó, hora de salir. Cada vela de 1 minuto cerrada se juzga una sola vez y en orden, así una mecha entre dos miradas igual cuenta. |
+| `/scalp-market` | **Tamaño y simulación.** El tamaño según tu riesgo (no según el apalancamiento) y la simulación del plan sobre velas reales de 1 minuto, con comisiones, en USD. Una orden límite se llena siempre que el precio esté en el límite o del otro lado: te salva de perseguir el precio, no de un movimiento en contra. |
 
 ## Cómo se usan juntas
 
@@ -134,15 +134,22 @@ python3 bt.py --no-fees
 
 Cada día se calcula con sus propios horarios de verano. La cripto opera todo
 el tiempo, así que también hay una sesión libre para practicar a cualquier hora:
-`--session utc --open HH:MM` (entrada, salida, escáner; la máquina del tiempo la
-lee del plan). Lejos de las aperturas BTC se mueve menos (el fin de semana, unas
-3 veces menos), y en nuestras pruebas ningún horario ganó después de comisiones.
+`--session utc --open HH:MM` (entrada, salida, escáner, máquina del tiempo).
+Puede cruzar la medianoche UTC (las 21:00 de Argentina): los archivos que las
+skills se pasan entre sí llevan la fecha y la hora completas. Lejos de las
+aperturas BTC se mueve menos (el fin de semana, unas 3 veces menos), y en
+nuestras pruebas ningún horario ganó después de comisiones.
+
+Las entradas valen en las 2 primeras horas de la sesión; la máquina del tiempo
+guarda 3, para poder seguir las últimas hasta su salida por tiempo.
 
 ## Tests
 
-`python3 tests/run_all.py --twice` corre todos los comandos, los que usan datos
-guardados dos veces, y revisa que las dos pasadas den lo mismo. Los que leen
-en vivo necesitan la red.
+`python3 tests/run_all.py --twice` corre todos los comandos dos veces y revisa
+que los casos armados con velas guardadas den exactamente lo mismo las dos
+veces. Con `--offline-only` corre solo esos: no necesitan red. Los casos en
+vivo (Yahoo, CoinGecko, mempool.space) solo tienen que correr sin errores, y
+pueden fallar cuando una API gratuita corta por exceso de consultas.
 
 ## Créditos
 

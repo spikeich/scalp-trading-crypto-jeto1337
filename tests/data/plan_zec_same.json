@@ -1,0 +1,13 @@
+{
+ "created_by": "tests",
+ "symbol": "ZEC-USD",
+ "side": "buy",
+ "date": "2026-11-07",
+ "session": "utc",
+ "entry_time": "03:09",
+ "flat_by": "03:29",
+ "interval": "1m",
+ "entry": 1348.0,
+ "stop": 1346.5,
+ "target": 1351.0
+}

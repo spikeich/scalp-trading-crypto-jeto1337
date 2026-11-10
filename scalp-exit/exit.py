@@ -21,9 +21,9 @@ Stops (rounded to the coin's tick, AWAY from the entry):
 
 Targets: 2R (default), 1.5R, 3R ... or price:X.
 
-Time stop (--hold, default 20 minutes): out at the entry time + hold, win or lose,
-and never after 5 minutes before the session's end. A scalp that has not worked
-in 20 minutes is not a scalp any more.
+Time stop (--hold, default 20 minutes): out at the entry time + hold, win or lose.
+A scalp that has not worked in 20 minutes is not a scalp any more. The plan carries
+the full times (entry_at, flat_at), so a trade may cross UTC midnight.
 
 Refused, with the reason: a stop on the wrong side, a target on the wrong side, a
 risk under --min-risk-pct (0.15 %), where the round-trip fee already eats about half
@@ -54,10 +54,11 @@ HOSTS = ("https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com")
 MAKER, TAKER = 0.0002, 0.0005
 ATR_BARS = 14
 BAR = 60
+STAMP = "%Y-%m-%d %H:%M"     # full UTC times in the plan: a scalp can cross UTC midnight
 EPOCH = datetime.datetime(1970, 1, 1)
 NOTE = "Un stop es un plan, no una garantía: un mercado rápido o una cascada de liquidaciones puede ejecutarlo peor."
 SESSIONS = {"wallstreet": ("ny", 9 * 60 + 30, 6 * 60 + 30), "europa": ("london", 8 * 60, 8 * 60 + 30),
-            "utc": ("utc", None, 120)}   # utc: a free 2-hour session starting at the entry's open_utc
+            "utc": ("utc", None, 120)}   # utc: a free session starting at --open (the entry's open_utc)
 
 
 class PlanError(Exception):
@@ -269,7 +270,7 @@ def gather(a):
                 "entry_time": a.entry_time, "date": a.date or datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
                 "session": a.session or "wallstreet", "setup": "orb" if a.or_high is not None else "level",
                 "or_high": a.or_high, "or_low": a.or_low, "or_minutes": a.or_minutes, "confirm": 1,
-                "open_utc": a.open}
+                "open_utc": a.open, "entry_at": None}
     if not os.path.exists(a.from_file):
         raise PlanError("no %s: run /scalp-entry first, or pass --symbol --side --entry" % a.from_file)
     e = read_json(a.from_file)
@@ -284,7 +285,8 @@ def gather(a):
             "entry_time": a.entry_time or e.get("entry_time"), "date": e.get("date"),
             "session": a.session or e.get("session") or "wallstreet", "setup": e.get("setup") or "orb",
             "or_high": orng.get("high"), "or_low": orng.get("low"), "or_minutes": orng.get("minutes") or 5,
-            "confirm": e.get("confirm") or 1, "open_utc": a.open or e.get("open_utc")}
+            "confirm": e.get("confirm") or 1, "open_utc": a.open or e.get("open_utc"),
+            "entry_at": None if (a.entry_time or a.entry is not None) else e.get("entry_at")}
 
 
 def build_plan(a):
@@ -292,14 +294,19 @@ def build_plan(a):
     stop_rule, stop_p = parse_stop(a.stop or "pct:0.25")
     target_rule, target_p = parse_target(a.target)
     day = datetime.date.fromisoformat(f["date"])
-    opn, close = session_times(f["session"], day, f.get("open_utc"))
+    opn, _ = session_times(f["session"], day, f.get("open_utc"))
+    entry_at = None            # the entry candle's close, as a full UTC time
+    if f.get("entry_at"):
+        entry_at = datetime.datetime.strptime(f["entry_at"], STAMP)
+    elif f["entry_time"]:
+        h, m = (int(x) for x in f["entry_time"].split(":"))
+        entry_at = datetime.datetime.combine(day, datetime.time(h, m))
+        if f["session"] == "utc" and entry_at < opn:
+            entry_at += datetime.timedelta(days=1)     # after UTC midnight, in a session opened the day before
     atr, atr_n = None, None
     if stop_rule == "atr":
         bars = fetch_bars(f["symbol"], a.offline)
-        cut = None
-        if f["entry_time"]:
-            h, m = (int(x) for x in f["entry_time"].split(":"))
-            cut = datetime.datetime.combine(day, datetime.time(h, m))
+        cut = entry_at
         sess = [b for b in bars if b["t"] >= int((opn - EPOCH).total_seconds())
                 and (cut is None or b["t"] + BAR <= int((cut - EPOCH).total_seconds()))]
         if not sess:
@@ -307,16 +314,18 @@ def build_plan(a):
         atr, atr_n = atr_of(sess)
     r = compute(f["side"], f["entry"], stop_rule, stop_p, target_rule, target_p, f["or_high"], f["or_low"],
                 atr, a.min_risk_pct)
-    last_out = close - datetime.timedelta(minutes=5)
+    start = entry_at or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None, second=0, microsecond=0)
     if a.flat_by:
-        flat_by = a.flat_by
+        try:
+            h, m = (int(x) for x in a.flat_by.split(":"))
+            flat_at = datetime.datetime.combine(start.date(), datetime.time(h, m))
+        except ValueError:
+            raise PlanError("--flat-by wants a UTC time like 15:05, not %r" % a.flat_by)
+        if flat_at <= start:
+            flat_at += datetime.timedelta(days=1)      # the next time the clock shows it
     else:
-        if f["entry_time"]:
-            h, m = (int(x) for x in f["entry_time"].split(":"))
-            start = datetime.datetime.combine(day, datetime.time(h, m))
-        else:
-            start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None, second=0, microsecond=0)
-        flat_by = min(start + datetime.timedelta(minutes=a.hold), last_out).strftime("%H:%M")
+        flat_at = start + datetime.timedelta(minutes=a.hold)
+    flat_by = flat_at.strftime("%H:%M")
     plan = {
         "created_by": "scalp-exit", "symbol": f["symbol"], "side": f["side"], "date": f["date"],
         "session": f["session"], "setup": f["setup"], "entry": f["entry"], "entry_time": f["entry_time"],
@@ -326,10 +335,11 @@ def build_plan(a):
         "reward_pct": r["reward_pct"], "opening_range": {"minutes": f["or_minutes"], "high": f["or_high"],
                                                         "low": f["or_low"]},
         "flat_by": flat_by, "hold_minutes": a.hold, "interval": "1m", "confirm": f["confirm"],
+        "open_at": opn.strftime(STAMP), "entry_at": entry_at.strftime(STAMP) if entry_at else None,
+        "flat_at": flat_at.strftime(STAMP),
     }
     if f["session"] == "utc":
         plan["open_utc"] = opn.strftime("%H:%M")
-        plan["window_utc"] = "%s-%s" % (opn.strftime("%H:%M"), "24:00" if close.date() > day else close.strftime("%H:%M"))
     if atr is not None:
         plan["atr"] = {"value": round(atr, 10), "bars": atr_n, "k": stop_p}
     if a.lev:

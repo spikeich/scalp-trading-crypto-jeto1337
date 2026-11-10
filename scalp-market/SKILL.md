@@ -45,8 +45,13 @@ Regla fija: **antes de usar esta skill, corré `/scalp-social-info`**
 ## 1. Qué criptos scalpear
 
 Solo las más líquidas, donde el spread es mínimo: **BTC y ETH**, y como mucho
-SOL y XRP. `scan.py` lee el mercado de CoinGecko; para la lista de scalping
-usá `/scalp-scanner universe` (más de 1.000 M USD de volumen en 24 horas).
+SOL y XRP. `scan.py` lee el mercado de CoinGecko y marca como candidatas las
+que negocian **más de 1.000 M USD por día** (el mismo piso que
+`/scalp-scanner universe`) y se movieron entre 1,5 % y 14 % en el día.
+
+Al lado de cada candidata muestra un **sesgo a ojo** (corto en rebotes, largo
+en caídas) según dónde está el precio dentro de su día. **Nunca se midió con
+datos**: es contexto, no una señal. Decíselo al usuario cuando lo muestres.
 
 ## 2. El tamaño (`size.py`)
 
@@ -64,10 +69,15 @@ máximo y el mínimo de cada minuto:
 
 | paso | regla |
 | --- | --- |
-| entrada | orden límite en la entrada del plan, desde la vela siguiente a la señal; si no se llena en 3 minutos, se cancela |
-| stop | tocado: sale al stop (comisión taker 0,05 %) |
-| objetivo | tocado: sale al objetivo (maker 0,02 %); si una vela toca los dos, cuenta el stop |
-| tiempo | a la hora `flat_by` del plan (entrada + 20 min): sale al cierre, gane o pierda |
+| entrada | orden límite en la entrada del plan, desde la vela siguiente a la señal. Una compra se llena cuando el precio está **en la entrada o por debajo**; una venta, en la entrada o por encima. Si no llega en 3 minutos, se cancela |
+| stop | tocado desde la vela de la entrada: sale al stop (comisión taker 0,05 %). En la vela de la entrada cuenta, porque el precio pasa por la entrada antes de llegar al stop |
+| objetivo | tocado después de la vela de la entrada: sale al objetivo (maker 0,02 %). Si una vela toca los dos, cuenta el stop |
+| tiempo | a la hora de salida del plan (entrada + 20 min, aunque cruce la medianoche UTC): sale al cierre, gane o pierda |
+
+**Una orden límite no te protege de un movimiento en contra.** Si el precio
+ya está del otro lado del límite cuando entra la orden, se llena en el acto:
+solo evita perseguir el precio cuando se escapa a favor. La orden queda
+"cancelada" únicamente cuando el precio se va a favor sin volver.
 
 Imprime una línea por evento (corré en vivo bajo `Monitor`), el resultado en
 USD con comisiones y la línea para anotarlo con `/scalp-risk log`.

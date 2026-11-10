@@ -23,6 +23,9 @@ Sessions (each day's own daylight-time offsets, printed in UTC):
   europa       opens 08:00 London   (08:00 UTC in winter)
   utc          a free session: --open HH:MM (UTC) is its start, for practising at any
                hour. Away from the opens crypto moves less: on weekends about a third.
+               It can cross UTC midnight (21:00 in Argentina): after midnight the same
+               --open still means the session that started the evening before, until
+               it expires. entry.json carries the full times (open_at, entry_at).
 
 Scalping only makes sense while volume is high: entries stop --expire-hours (2)
 after the open. A trigger's time is the CLOSE time of its candle (the 14:36
@@ -115,6 +118,11 @@ def ts_of(dt):
 
 def hm(dt):
     return dt.strftime("%H:%M")
+
+
+def stamp(dt):
+    """Full UTC time, for the files the next skills read: a session can cross UTC midnight."""
+    return dt.strftime("%Y-%m-%d %H:%M")
 
 
 # ---------------------------------------------------------------- prices
@@ -212,12 +220,18 @@ def evaluate(bars, now, session="wallstreet", setup="orb", side="both", or_minut
              expire_hours=2.0, day=None, confirm=2):
     """-> dict with status, phase, the range, the trigger (if any) and the bars so far.
     confirm = how many 1-minute closes in a row must be outside the level; the entry is the last one."""
-    day = day or now.date()
+    if day is None:
+        day = now.date()
+        if session == "utc" and now < session_open(session, day):
+            prev = day - datetime.timedelta(days=1)
+            if now <= session_open(session, prev) + datetime.timedelta(hours=expire_hours):
+                day = prev      # yesterday's session is still running, across UTC midnight
     opn = session_open(session, day)
     rng_end = opn + datetime.timedelta(minutes=or_minutes)
     expires = opn + datetime.timedelta(hours=expire_hours)
     done = [b for b in bars if b["t"] >= ts_of(opn) and b["t"] + BAR <= ts_of(min(now, expires))]
-    res = {"session": session, "date": day.isoformat(), "open_utc": hm(opn), "setup": setup, "side": side,
+    res = {"session": session, "date": day.isoformat(), "open_utc": hm(opn), "open_at": stamp(opn),
+           "setup": setup, "side": side,
            "or_minutes": or_minutes, "range_ends_utc": hm(rng_end), "expires_utc": hm(expires),
            "level": level, "or_high": None, "or_low": None, "bars": done, "trigger": None,
            "last": done[-1]["c"] if done else None, "confirm": confirm, "streak": None}
@@ -250,11 +264,13 @@ def evaluate(bars, now, session="wallstreet", setup="orb", side="both", or_minut
         down = down + 1 if b["c"] < down_lvl else 0
         if side in ("both", "long") and up >= confirm:
             res.update(status="triggered", phase="triggered",
-                       trigger={"side": "long", "time": hm(close_at), "price": rnd(b["c"]), "level": up_lvl})
+                       trigger={"side": "long", "time": hm(close_at), "at": stamp(close_at), "price": rnd(b["c"]),
+                                "level": up_lvl})
             return res
         if side in ("both", "short") and down >= confirm:
             res.update(status="triggered", phase="triggered",
-                       trigger={"side": "short", "time": hm(close_at), "price": rnd(b["c"]), "level": down_lvl})
+                       trigger={"side": "short", "time": hm(close_at), "at": stamp(close_at), "price": rnd(b["c"]),
+                                "level": down_lvl})
             return res
     if up and side in ("both", "long"):
         res["streak"] = ("long", up)
@@ -272,6 +288,7 @@ def entry_doc(sym, res, now):
     return {
         "created_by": "scalp-entry", "created_at": now.isoformat() + "Z", "symbol": sym,
         "status": res["status"], "session": res["session"], "date": res["date"], "open_utc": res["open_utc"],
+        "open_at": res["open_at"], "entry_at": t.get("at"),
         "setup": res["setup"], "opening_range": {"minutes": res["or_minutes"], "high": res["or_high"],
                                                  "low": res["or_low"]},
         "level": res["level"], "side": {"long": "buy", "short": "sell"}.get(t.get("side")),

@@ -52,10 +52,10 @@ print Spanish, and Claude answers you in whatever language you write in.
 | `/scalp-scanner` | **What is breaking.** The most liquid coins only (over 1,000 M USD a day), breaking the first 5 minutes of the London or Wall Street open with 2 one-minute closes in a row. |
 | `/scalp-entry` | **When to get in.** Candle by candle, the moment 2 one-minute closes in a row land outside the range or a level. Entries expire 2 hours after the open. |
 | `/scalp-exit` | **Where to get out.** A 0.25 % stop, a 2R target and a 20-minute time stop by default, with R net of Binance fees and the liquidation price for your leverage. |
-| `/scalp-timemachine` | **Does it have an edge?** 10,000 replays of the next 20 minutes from the coin's own 1-minute candles of the last 4 weeks, plus the same rule on every past day. |
+| `/scalp-timemachine` | **Does it have an edge?** 10,000 replays of the next 20 minutes from the coin's own 1-minute candles of the last 4 weeks, plus the same rule on every past day. Every number comes twice: before and **after Binance fees**, and the verdict after fees is the one that counts. |
 | `/scalp-risk` | **Does it fit your limits?** 0.5 % risk a trade, up to 10x isolated, net R of at least 1.2, one scalp at a time, the day ends after 3 losses, a signal older than 3 minutes is stale. Prints the order to type into Binance by hand. |
-| `/scalp-alerts` | **While it is open.** Entry filled, stop, target, a limit that never filled, time to get out, from the last 1-minute candle's high and low every 20 seconds. |
-| `/scalp-market` | **Size and paper trading.** The position size from your risk (not your leverage), and a paper trade of the plan on real 1-minute candles with fees, in USD. |
+| `/scalp-alerts` | **While it is open.** Entry filled, stop, target, a limit that never filled, time to get out. Every closed 1-minute candle is judged once and in order, so a wick between two looks still counts. |
+| `/scalp-market` | **Size and paper trading.** The position size from your risk (not your leverage), and a paper trade of the plan on real 1-minute candles with fees, in USD. A limit order fills whenever the price is at or through it: it saves you from chasing, not from a move against you. |
 
 ## How they fit together
 
@@ -132,14 +132,21 @@ python3 bt.py --no-fees
 
 Each day is worked out with its own daylight saving offsets. Crypto trades
 around the clock, so there is also a free session for practising at any hour:
-`--session utc --open HH:MM` (entry, exit, scanner; the time machine reads it
-from the plan). Away from the opens BTC moves less (about a third on weekends),
-and in our tests no hour of the day made money after fees.
+`--session utc --open HH:MM` (entry, exit, scanner, time machine). It may cross
+UTC midnight: the files the skills pass each other carry full dates and times.
+Away from the opens BTC moves less (about a third on weekends), and in our
+tests no hour of the day made money after fees.
+
+Entries count in the first 2 hours of a session; the time machine keeps 3, so
+the last entries can still be held to their time stop.
 
 ## Tests
 
-`python3 tests/run_all.py --twice` runs every command, the offline ones twice,
-and checks both passes print the same thing. The live ones need the network.
+`python3 tests/run_all.py --twice` runs every command twice and checks that
+the cases built on saved candles print exactly the same both times. Add
+`--offline-only` to run just those: they need no network at all. The live
+cases (Yahoo, CoinGecko, mempool.space) only have to run cleanly, and can fail
+when a free API rate-limits.
 
 ## Credits
 
